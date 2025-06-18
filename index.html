@@ -12,7 +12,7 @@
 
     <!-- Kirjautumisnappi -->
     <div id="login-section">
-      <button id="login-btn" class="btn btn-primary">Kirjaudu EB-Connectiin</button>
+      <button id="login-btn" class="btn btn-primary">Kirjaudu Ebeco API:iin</button>
     </div>
 
     <!-- Laitteiden lista -->
@@ -21,9 +21,16 @@
       <ul id="devices-list" class="list-group mb-3"></ul>
     </div>
 
-    <!-- Laitteen tiedot -->
+    <!-- Laitteen tiedot ja ohjaus -->
     <div id="device-details" class="d-none">
       <h3 id="device-title"></h3>
+      <div id="controls" class="mb-3">
+        <div>Nykyinen lämpötila: <span id="current-temp">–</span> °C</div>
+        <div class="input-group mt-2" style="max-width:200px;">
+          <input id="set-temp" type="number" class="form-control" min="5" max="35" step="0.5" value="21">
+          <button id="set-temp-btn" class="btn btn-success">Aseta</button>
+        </div>
+      </div>
       <pre id="device-data" class="bg-light p-3 rounded"></pre>
     </div>
   </div>
@@ -33,12 +40,13 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
 
   <script>
-    // EB-Connect - autentikointiasetukset
+    // Käyttäjän tunnukset ja Ebeco Open API -asetukset
     const username = "karl.uusitalo@outlook.com";
     const password = "04408049Eo";
     const authUrl  = "https://ebecoconnect.com/api/TokenAuth/Authenticate";
+    const apiBase  = "https://ebecoconnect.com";
 
-    // Firebase-konfiguraatio
+    // Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyAiOUIm2n_2vitM4ZM0QYeKO1Io9ezj6Wk",
       authDomain: "ruka-393ba.firebaseapp.com",
@@ -48,13 +56,15 @@
       appId: "1:260943821874:web:9a4ce89c1591599ae5d02b",
       measurementId: "G-1F8728CX4T"
     };
-
-    // Firebase-init
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-    let accessToken = null;
 
-    document.getElementById('login-btn').addEventListener('click', async () => {
+    let accessToken = null;
+    let selectedDeviceId = null;
+
+    document.getElementById('login-btn').addEventListener('click', authenticate);
+
+    async function authenticate() {
       try {
         const payload = {
           userNameOrEmailAddress: username,
@@ -74,23 +84,20 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         accessToken = json.result?.accessToken;
-        if (!accessToken) {
-          console.error('Autentikoinnin vastaus:', json);
-          throw new Error('accessToken puuttuu vasteesta');
-        }
+        if (!accessToken) throw new Error('accessToken puuttuu');
 
         document.getElementById('login-section').classList.add('d-none');
         document.getElementById('devices-section').classList.remove('d-none');
-        loadDevices();
+        await loadDevices();
       } catch (err) {
-        console.error('Autentikointi epäonnistui:', err);
+        console.error(err);
         alert('Autentikointi epäonnistui: ' + err.message);
       }
-    });
+    }
 
     async function loadDevices() {
       try {
-        const res = await fetch('https://ebecoconnect.com/api/services/app/Devices/GetUserDevices', {
+        const res = await fetch(`${apiBase}/api/services/app/Devices/GetUserDevices`, {
           headers: {
             'Authorization': 'Bearer ' + accessToken,
             'Accept': 'application/json',
@@ -99,35 +106,73 @@
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        console.log('GetUserDevices vastaus:', json);
         const items = json.result?.items;
-        if (!Array.isArray(items)) {
-          alert('Laitteiden haku epäonnistui, vastaus ei sisällä items: ' + JSON.stringify(json));
-          return;
-        }
+        if (!Array.isArray(items)) throw new Error('items puuttuu');
+
         const listEl = document.getElementById('devices-list');
         listEl.innerHTML = '';
         items.forEach(device => {
           const li = document.createElement('li');
-          li.textContent = device.deviceName || device.name || ('Laite ' + device.id);
+          li.textContent = device.deviceName || ('Laite ' + device.id);
           li.className = 'list-group-item list-group-item-action';
-          li.onclick = () => showDeviceDetails(device);
+          li.addEventListener('click', () => selectDevice(device.id, device.deviceName));
           listEl.appendChild(li);
         });
       } catch (e) {
-        console.error('Laitteiden haku epäonnistui:', e);
+        console.error(e);
         alert('Laitteiden haku epäonnistui: ' + e.message);
       }
     }
 
-    async function showDeviceDetails(device) {
-      document.getElementById('device-title').textContent = device.deviceName || device.name;
-      document.getElementById('device-data').textContent = JSON.stringify(device, null, 2);
+    async function selectDevice(id, name) {
+      selectedDeviceId = id;
+      document.getElementById('devices-section').classList.add('d-none');
+      document.getElementById('device-title').textContent = name;
       document.getElementById('device-details').classList.remove('d-none');
+      document.getElementById('set-temp-btn').addEventListener('click', setTemperature);
+
+      // Hae ja näytä nykyinen lämpötila
       try {
-        await db.collection('users').doc(username).set({ selectedDevice: device.id });
+        const res = await fetch(`${apiBase}/api/services/app/Devices/GetCurrentTemperatures`, {
+          headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'Accept': 'application/json',
+            'Abp.TenantId': '1'
+          }
+        });
+        const json = await res.json();
+        const current = json.result?.find(item => item.deviceId === id)?.currentTemperature;
+        document.getElementById('current-temp').textContent = current != null ? current.toFixed(1) : '–';
+        document.getElementById('device-data').textContent = JSON.stringify(json, null, 2);
+
+        // Tallenna valinta Firebaseen
+        await db.collection('users').doc(username).set({ selectedDevice: id });
       } catch (e) {
-        console.error('Tallennus Firebaseen epäonnistui:', e);
+        console.error(e);
+        alert('Nykyisen lämpötilan haku epäonnistui');
+      }
+    }
+
+    async function setTemperature() {
+      const newTemp = parseFloat(document.getElementById('set-temp').value);
+      if (isNaN(newTemp)) { alert('Anna kelvollinen lämpötila'); return; }
+      try {
+        const payload = { deviceId: selectedDeviceId, temperature: newTemp };
+        const res = await fetch(`${apiBase}/api/services/app/Devices/SetDeviceTemperature`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Abp.TenantId': '1'
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        alert('Lämpötila asetettu: ' + newTemp + ' °C');
+      } catch (e) {
+        console.error(e);
+        alert('Lämpötilan asetus epäonnistui: ' + e.message);
       }
     }
   </script>
