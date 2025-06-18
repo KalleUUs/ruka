@@ -56,7 +56,6 @@
 
     document.getElementById('login-btn').addEventListener('click', async () => {
       try {
-        // Autentikointipyynnön payload
         const payload = {
           userNameOrEmailAddress: username,
           password: password,
@@ -74,15 +73,18 @@
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        accessToken = json.result.accessToken;
+        accessToken = json.result?.accessToken;
+        if (!accessToken) {
+          console.error('Autentikoinnin vastaus:', json);
+          throw new Error('accessToken puuttuu vasteesta');
+        }
 
-        // Siirrytään laitelistaukseen
         document.getElementById('login-section').classList.add('d-none');
         document.getElementById('devices-section').classList.remove('d-none');
         loadDevices();
       } catch (err) {
         console.error('Autentikointi epäonnistui:', err);
-        alert('Autentikointi epäonnistui: ' + err.message + '. Tarkista tunnukset ja TenantId.');
+        alert('Autentikointi epäonnistui: ' + err.message);
       }
     });
 
@@ -97,9 +99,15 @@
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
+        console.log('GetUserDevices vastaus:', json);
+        const items = json.result?.items;
+        if (!Array.isArray(items)) {
+          alert('Laitteiden haku epäonnistui, vastaus ei sisällä items: ' + JSON.stringify(json));
+          return;
+        }
         const listEl = document.getElementById('devices-list');
         listEl.innerHTML = '';
-        json.result.items.forEach(device => {
+        items.forEach(device => {
           const li = document.createElement('li');
           li.textContent = device.deviceName || device.name || ('Laite ' + device.id);
           li.className = 'list-group-item list-group-item-action';
