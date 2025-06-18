@@ -26,9 +26,10 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // Proxy-based API URLs
-    const authUrl = "/api/TokenAuth/Authenticate";
-    const baseApi = "/api/services/app";
+    // Proxy setup: define proxy server URL (local dev)
+    const PROXY_URL = 'http://localhost:5000'; // change if your proxy runs elsewhere
+    const authUrl = `${PROXY_URL}/api/TokenAuth/Authenticate`;
+    const baseApi = `${PROXY_URL}/api/services/app`;
 
     // Firebase config and initialization (compat)
     const firebaseConfig = {
@@ -59,7 +60,9 @@
     async function getFloorStatus() {
       if (!token) await authenticate();
       try {
-        const res = await axios.get(`${baseApi}/FloorHeating/GetStatus`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await axios.get(`${baseApi}/FloorHeating/GetStatus`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         return res.data.result;
       } catch (err) {
         throw new Error("Tietojen haku epäonnistui: " + (err.response?.status || err.message));
