@@ -13,10 +13,11 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <!-- Axios -->
   <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-firestore.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-messaging.js"></script>
+  <!-- Firebase (compat libs) -->
+  <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-firestore-compat.js"></script>
+  <!-- Optional messaging if needed: -->
+  <!-- <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-messaging-compat.js"></script> -->
   <!-- Day.js -->
   <script src="https://unpkg.com/dayjs/dayjs.min.js"></script>
 </head>
@@ -37,10 +38,9 @@
     appId: "1:260943821874:web:9a4ce89c1591599ae5d02b",
     measurementId: "G-1F8728CX4T"
   };
-  // Initialize Firebase
-  const app = firebase.initializeApp(firebaseConfig);
+  // Initialize Firebase (compat)
+  firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
-  const messaging = firebase.messaging();
 
   // EbecoConnect API
   const authUrl = "https://ebecoconnect.com/api/TokenAuth/Authenticate";
@@ -52,14 +52,22 @@
     const res = await axios.post(authUrl, creds);
     token = res.data.result.accessToken;
   }
+
   async function getFloorStatus() {
     if (!token) await authenticate();
-    const res = await axios.get(`${baseApi}/FloorHeating/GetStatus`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await axios.get(`${baseApi}/FloorHeating/GetStatus`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
     return res.data.result;
   }
+
   async function setTargetTemperature(val) {
     if (!token) await authenticate();
-    const res = await axios.post(`${baseApi}/FloorHeating/SetTemperature`, { temperature: val }, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await axios.post(
+      `${baseApi}/FloorHeating/SetTemperature`,
+      { temperature: val },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
     return res.data.success;
   }
 
@@ -68,39 +76,59 @@
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-100">
         <h1 className="text-2xl font-semibold mb-4">Kirjaudu sisään</h1>
-        <button className="px-6 py-2 bg-blue-600 text-white rounded-lg" onClick={onLogin}>
+        <button
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg"
+          onClick={onLogin}
+        >
           Käytä lattialämmitystä
         </button>
       </div>
     );
   }
+
   function TemperatureControl({ current, onSet }) {
     const [val, setVal] = useState(current);
     return (
       <div className="flex items-center space-x-2">
-        <input type="number" value={val} onChange={e => setVal(+e.target.value)} className="w-16 p-1 border rounded" />
-        <button className="px-4 py-1 bg-green-600 text-white rounded" onClick={() => onSet(val)}>Aseta</button>
+        <input
+          type="number"
+          value={val}
+          onChange={e => setVal(+e.target.value)}
+          className="w-16 p-1 border rounded"
+        />
+        <button
+          className="px-4 py-1 bg-green-600 text-white rounded"
+          onClick={() => onSet(val)}
+        >
+          Aseta
+        </button>
       </div>
     );
   }
+
   function Dashboard() {
     const [status, setStatus] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => { fetchStatus(); }, []);
+
     async function fetchStatus() {
       setLoading(true);
-      const s = await getFloorStatus(); setStatus(s);
+      const s = await getFloorStatus();
+      setStatus(s);
       setLoading(false);
     }
+
     async function onSet(val) {
       const ok = await setTargetTemperature(val);
       if (ok) {
-        await db.collection('temperatureLogs').add({ timestamp: dayjs().toISOString(), target: val });
+        db.collection('temperatureLogs').add({ timestamp: dayjs().toISOString(), target: val });
         fetchStatus();
       }
     }
+
     if (loading) return <div className="p-4">Ladataan tiedot...</div>;
+
     return (
       <div className="p-4 space-y-6">
         <h2 className="text-xl font-bold">Mökin lattialämmityksen tila</h2>
@@ -110,9 +138,12 @@
       </div>
     );
   }
+
   function App() {
     const [auth, setAuth] = useState(false);
-    useEffect(() => { authenticate().then(() => setAuth(true)).catch(() => setAuth(false)); }, []);
+    useEffect(() => {
+      authenticate().then(() => setAuth(true)).catch(() => setAuth(false));
+    }, []);
     if (!auth) return <Login onLogin={() => setAuth(true)} />;
     return <Dashboard />;
   }
