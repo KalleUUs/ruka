@@ -2,35 +2,43 @@
 <html lang="fi">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ruka Lattialämmitys One-File</title>
-  <!-- Tailwind CSS via CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- React & ReactDOM -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-  <!-- Babel standalone for JSX -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Axios for HTTP requests -->
-  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
-  <!-- Firebase compat libraries -->
-  <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.6.0/firebase-firestore-compat.js"></script>
-  <!-- Day.js for timestamps -->
-  <script src="https://unpkg.com/dayjs/dayjs.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Mökin lattialämmityksen ohjaus</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body class="bg-gray-50">
-  <div id="root" class="min-h-screen"></div>
+<body>
+  <div class="container py-4">
+    <h1 class="mb-4">Mökin lattialämmityksen ohjaus</h1>
 
-  <!-- Application Script -->
-  <script type="text/babel">
-    const { useState, useEffect } = React;
+    <!-- Kirjautumisnappi -->
+    <div id="login-section">
+      <button id="login-btn" class="btn btn-primary">Kirjaudu EB-Connectiin</button>
+    </div>
 
-    // Use relative API paths; ensure front-end is served via a web server alongside proxy
-    const authUrl = "/api/TokenAuth/Authenticate";
-    const baseApi = "/api/services/app";
+    <!-- Laitteiden lista -->
+    <div id="devices-section" class="d-none">
+      <h2>Omat laitteet</h2>
+      <ul id="devices-list" class="list-group mb-3"></ul>
+    </div>
 
-    // Firebase config and initialization
+    <!-- Laitteen tiedot -->
+    <div id="device-details" class="d-none">
+      <h3 id="device-title"></h3>
+      <pre id="device-data" class="bg-light p-3 rounded"></pre>
+    </div>
+  </div>
+
+  <!-- Firebase SDKt -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
+  <script>
+    // EBECON CONNECT - AUTENTIKAATIOTIEDOT
+    const username = "karl.uusitalo@outlook.com";
+    const password = "04408049Eo";
+    const authUrl  = "https://ebecoconnect.com/api/TokenAuth/Authenticate";
+
+    // FIREBASE-CONFIG
     const firebaseConfig = {
       apiKey: "AIzaSyAiOUIm2n_2vitM4ZM0QYeKO1Io9ezj6Wk",
       authDomain: "ruka-393ba.firebaseapp.com",
@@ -40,98 +48,70 @@
       appId: "1:260943821874:web:9a4ce89c1591599ae5d02b",
       measurementId: "G-1F8728CX4T"
     };
+
+    // Firebase-init
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // API helper credentials
-    const creds = { userNameOrEmailAddress: "karl.uusitalo@outlook.com", password: "04408049Eo" };
-    let token = null;
+    let accessToken = null;
 
-    async function authenticate() {
+    // Kun klikataan Kirjaudu-painiketta, autentikoidaan EB-Connectiin ja haetaan laitelistat
+    document.getElementById('login-btn').addEventListener('click', async () => {
       try {
-        const res = await axios.post(authUrl, creds);
-        token = res.data.result.accessToken;
+        const res = await fetch(authUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Abp.TenantId': '1'
+          },
+          body: JSON.stringify({ userName: username, password: password })
+        });
+        const json = await res.json();
+        accessToken = json.result.accessToken;
+
+        // Näytetään laitelistaukseen
+        document.getElementById('login-section').classList.add('d-none');
+        document.getElementById('devices-section').classList.remove('d-none');
+        loadDevices();
       } catch (err) {
-        throw new Error("Autentikointi epäonnistui: " + (err.response?.status || err.message));
+        console.error(err);
+        alert('Autentikointi epäonnistui');
+      }
+    });
+
+    // Haetaan käyttäjän laitteet ja listataan ne
+    async function loadDevices() {
+      const res = await fetch('https://ebecoconnect.com/api/services/app/Devices/GetUserDevices', {
+        headers: {
+          'Authorization': 'Bearer ' + accessToken,
+          'Abp.TenantId': '1'
+        }
+      });
+      const json = await res.json();
+      const devices = json.result.items;
+      const listEl = document.getElementById('devices-list');
+      listEl.innerHTML = '';
+      devices.forEach(device => {
+        const li = document.createElement('li');
+        li.textContent = device.deviceName || device.name || ('Laite ' + device.id);
+        li.className = 'list-group-item list-group-item-action';
+        li.onclick = () => showDeviceDetails(device);
+        listEl.appendChild(li);
+      });
+    }
+
+    // Näytetään laitteen tiedot ja tallennetaan valinta Firestoreen
+    async function showDeviceDetails(device) {
+      document.getElementById('device-title').textContent = device.deviceName || device.name;
+      document.getElementById('device-data').textContent = JSON.stringify(device, null, 2);
+      document.getElementById('device-details').classList.remove('d-none');
+
+      try {
+        await db.collection('users').doc(username).set({ selectedDevice: device.id });
+      } catch (e) {
+        console.error('Tallennus Firebaseen epäonnistui:', e);
       }
     }
-
-    async function getFloorStatus() {
-      if (!token) await authenticate();
-      try {
-        const res = await axios.get(`${baseApi}/FloorHeating/GetStatus`, { headers:{ Authorization:`Bearer ${token}` } });
-        return res.data.result;
-      } catch (err) {
-        throw new Error("Tietojen haku epäonnistui: " + (err.response?.status || err.message));
-      }
-    }
-
-    async function setTargetTemperature(val) {
-      if (!token) await authenticate();
-      try {
-        const res = await axios.post(
-          `${baseApi}/FloorHeating/SetTemperature`,
-          { temperature: val },
-          { headers:{ Authorization:`Bearer ${token}` } }
-        );
-        return res.data.success;
-      } catch (err) {
-        throw new Error("Asetuksen muutos epäonnistui: " + (err.response?.status || err.message));
-      }
-    }
-
-    function Login({ onLogin }) {
-      return (
-        <div className="h-screen flex flex-col items-center justify-center bg-gray-100">
-          <h1 className="text-2xl font-semibold mb-4">Kirjaudu sisään</h1>
-          <button className="px-6 py-2 bg-blue-600 text-white rounded-lg" onClick={onLogin}>
-            Käytä lattialämmitystä
-          </button>
-        </div>
-      );
-    }
-
-    function TemperatureControl({ current, onSet }) {
-      const [val, setVal] = useState(current);
-      return (
-        <div className="flex items-center space-x-2">
-          <input type="number" value={val} onChange={e=>setVal(+e.target.value)} className="w-16 p-1 border rounded" />
-          <button className="px-4 py-1 bg-green-600 text-white rounded" onClick={()=>onSet(val)}>Aseta</button>
-        </div>
-      );
-    }
-
-    function Dashboard({ onError }) {
-      const [status,setStatus]=useState(null);
-      const [loading,setLoading]=useState(true);
-
-      useEffect(()=>{fetchStatus();}, []);
-      async function fetchStatus(){
-        setLoading(true);
-        try{const s=await getFloorStatus();setStatus(s);}catch(e){onError(e.message);}finally{setLoading(false);}    }
-      async function onSet(val){
-        try{const ok=await setTargetTemperature(val);if(ok){await db.collection('temperatureLogs').add({timestamp:dayjs().toISOString(),target:val});fetchStatus();}}catch(e){onError(e.message);}    }
-      if(loading) return <div className="p-4">Ladataan tietoja...</div>;
-      return (
-        <div className="p-4 space-y-6">
-          <h2 className="text-xl font-bold">Mökin lattialämmityksen tila</h2>
-          <div>Nykyinen lämpötila: {status.currentTemperature}°C</div>
-          <div>Asetus: {status.targetTemperature}°C</div>
-          <TemperatureControl current={status.targetTemperature} onSet={onSet} />
-        </div>
-      );
-    }
-
-    function App(){
-      const [auth,setAuth]=useState(false);
-      const [error,setError]=useState(null);
-      useEffect(()=>{authenticate().then(()=>setAuth(true)).catch(e=>setError(e.message));}, []);
-      if(error) return <div className="p-4 text-red-600">Virhe: {error}</div>;
-      if(!auth) return <Login onLogin={()=>setAuth(true)} />;
-      return <Dashboard onError={msg=>setError(msg)} />;
-    }
-
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
