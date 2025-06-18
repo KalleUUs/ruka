@@ -33,12 +33,12 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
 
   <script>
-    // EBECON CONNECT - AUTENTIKAATIOTIEDOT
+    // EB-Connect - autentikointiasetukset
     const username = "karl.uusitalo@outlook.com";
     const password = "04408049Eo";
     const authUrl  = "https://ebecoconnect.com/api/TokenAuth/Authenticate";
 
-    // FIREBASE-CONFIG
+    // Firebase-konfiguraatio
     const firebaseConfig = {
       apiKey: "AIzaSyAiOUIm2n_2vitM4ZM0QYeKO1Io9ezj6Wk",
       authDomain: "ruka-393ba.firebaseapp.com",
@@ -52,46 +52,48 @@
     // Firebase-init
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-
     let accessToken = null;
 
-    // Kun klikataan Kirjaudu-painiketta, autentikoidaan EB-Connectiin ja haetaan laitelistat
     document.getElementById('login-btn').addEventListener('click', async () => {
       try {
+        // Korjattu autentikointipyyntö ABP:n oletuskentillä
+        const payload = {
+          userNameOrEmailAddress: username,
+          password: password,
+          rememberClient: true
+        };
         const res = await fetch(authUrl, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Abp.TenantId': '1'
+            'Content-Type': 'application/json'
+            // Jos tarvitaan Moni-tenant-tuki, lisää 'Abp.TenantId': '1'
           },
-          body: JSON.stringify({ userName: username, password: password })
+          body: JSON.stringify(payload)
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         accessToken = json.result.accessToken;
 
-        // Näytetään laitelistaukseen
+        // Siirry laitelistaukseen
         document.getElementById('login-section').classList.add('d-none');
         document.getElementById('devices-section').classList.remove('d-none');
         loadDevices();
       } catch (err) {
-        console.error(err);
-        alert('Autentikointi epäonnistui');
+        console.error('Autentikointi epäonnistui:', err);
+        alert('Autentikointi epäonnistui: ' + err.message);
       }
     });
 
-    // Haetaan käyttäjän laitteet ja listataan ne
     async function loadDevices() {
       const res = await fetch('https://ebecoconnect.com/api/services/app/Devices/GetUserDevices', {
         headers: {
-          'Authorization': 'Bearer ' + accessToken,
-          'Abp.TenantId': '1'
+          'Authorization': 'Bearer ' + accessToken
         }
       });
       const json = await res.json();
-      const devices = json.result.items;
       const listEl = document.getElementById('devices-list');
       listEl.innerHTML = '';
-      devices.forEach(device => {
+      json.result.items.forEach(device => {
         const li = document.createElement('li');
         li.textContent = device.deviceName || device.name || ('Laite ' + device.id);
         li.className = 'list-group-item list-group-item-action';
@@ -100,12 +102,10 @@
       });
     }
 
-    // Näytetään laitteen tiedot ja tallennetaan valinta Firestoreen
     async function showDeviceDetails(device) {
       document.getElementById('device-title').textContent = device.deviceName || device.name;
       document.getElementById('device-data').textContent = JSON.stringify(device, null, 2);
       document.getElementById('device-details').classList.remove('d-none');
-
       try {
         await db.collection('users').doc(username).set({ selectedDevice: device.id });
       } catch (e) {
